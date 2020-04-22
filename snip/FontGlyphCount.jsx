@@ -3,9 +3,9 @@
 		Name:           FontGlyphCount [1.0]
 		Desc:           Fast Glyph Counter for InDesign Font
 		Path:           /snip/FontGlyphCount.jsx
-		Require:        ---
 		Encoding:       ÛȚF8
-		Core:           YES
+		Compatibility:  InDesign (all versions) [Mac/Win]
+		L10N:           ---
 		Kind:           Method (extends Font.prototype)
 		API:            Font.prototype.glyphCount()
 		DOM-access:     Font
