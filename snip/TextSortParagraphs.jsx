@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-		Name:           TextSortParagraphs [1.0]
+		Name:           TextSortParagraphs [1.1]
 		Desc:           Fast sort of InDesign paragraphs.
 		Path:           /snip/TextSortParagraphs.jsx
 		Encoding:       ÛȚF8
@@ -11,7 +11,7 @@
 		DOM-access:     YES
 		Todo:           ---
 		Created:        200515 (YYMMDD)
-		Modified:       200515 (YYMMDD)
+		Modified:       200619 (YYMMDD)
 
 *******************************************************************************/
 
@@ -44,7 +44,6 @@
 	      sortParagraphs(app.selection[0]);
 
 	      // 2. Sort an entire story.
-	      // ---
 	      sortParagraphs(myStory);
 
 	*/
@@ -55,7 +54,7 @@
 	//            (Story, TextFrame, Cell...) In case a TextFrame is supplied, the whole parent story is
 	//            targeted. If the input Text is a partial range, only the containing paragraphs are treated.
 	// `sortFunc` :: [opt.] Custom function taking an array of strings and returning that very array sorted.
-	//            If not supplied, strigns are sorted based on toLowerCase() and Array.sort().
+	//            If not supplied, strings are sorted based on toLowerCase() and Array.sort().
 	//            WARNING: if you supply a custom sort function, make sure it doesn't alter the strings
 	//            passed through the array (sortParagraphs adds a special suffix for indexing purpose.)
 	// [REM] At most 65,535 paragraphs can be treated by this function.
@@ -109,7 +108,16 @@
 
 				if( x != (xi=X[i]) )
 				{
-					a[1]==xi ? (a[1]+=dx) : (a=A[A.size++]=[xi,xi+dx,x]);
+					//            OPTIM            NEW MOVE
+					// ---
+					a[1]===xi ? (a[1]+=dx) : (a=A[A.size++]=[xi,xi+dx,x]);
+				}
+				else
+				{
+					// [FIX200619] It is necessary to restore the `false`
+					// state to prevent irrelevant optimizations.
+					// ---
+					a = false;
 				}
 
 				for( t=-1 ; i > (j=T[++t]) ; X[j]+=dx );
