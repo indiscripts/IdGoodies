@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-		Name:           LinkAutoUpdate [4.1]
+		Name:           LinkAutoUpdate [4.2]
 		Desc:           Automatically updates 'out-of-date' links.
 		Path:           /snip/LinkAutoUpdate.jsx
 		Encoding:       ÛȚF8
@@ -43,17 +43,35 @@
 	|| ( $.global.EVENT_TYPE = 'afterLinksChanged'); // Alt. 'afterAttributeChanged'
 
 
-	'function' == typeof $.global.onEvent || ($.global.onEvent= function onEvent(/*Event*/ev,  tg)
+	'function' == typeof $.global.onEvent || ($.global.onEvent= function onEvent(/*{eventType,target}*/ev,  tg,s,i)
 	//----------------------------------------------------------
 	// ev.eventType :: 'afterLinksChanged'  |  'afterAttributeChanged'
 	// ev.target    :: Document             |  any
 	{
+		const OUTDATED = LinkStatus.LINK_OUT_OF_DATE.toString();
+
 		if( !(tg=(ev||0).target) ) return;
 		
 		if( 'afterLinksChanged' == ev.eventType )
 		{
-			try{ (tg instanceof Document) && (tg=tg.links.everyItem()).isValid && tg.update() }
-			catch(e){ alert($.engineName + " Error:\r" + e) }
+			if( (!(tg instanceof Document)) || !(tg=tg.links.everyItem()).isValid ) return;
+			
+			try
+			{
+				s = tg.status;                                        // LinkStatus[]
+				if( -1 == (s=s.join('|')).indexOf(OUTDATED) ) return; // Aborts faster.
+				for
+				(
+					s=s.split('|'), tg=tg.getElements(), i=tg.length ;
+					i-- ;
+					OUTDATED===s[i] && tg[i].update()
+				);
+			}
+			catch(e)
+			{
+				alert($.engineName + " Error:\r" + e);
+			}
+
 			return;
 		}
 
@@ -90,7 +108,7 @@
 	  ].join('\r\r')
 	);
 
-	(function(/*str*/evType,/*str*/name,/*fct*/callback,  evls,t)
+	(function(/*str*/evType,/*str*/name,/*fct*/callback,  evls,MX_SAVE,doc)
 	//----------------------------------------------------------
 	// Install/uninstall the listener.
 	{
@@ -102,10 +120,19 @@
 		}
 		else
 		{
+			MX_SAVE = app.performanceMetric(+PerformanceMetricOptions.MINISAVE_COUNT);
+
+			// Autofix the active document, if relevant.
+			// ---
+			if( (doc=app.properties.activeDocument) && 'afterLinksChanged'==evType )
+			{
+				callback({target:doc, eventType:evType});
+			}
+			
 			// Prevent alert on automatic startup.
 			// ---
-			t = app.performanceMetric(+PerformanceMetricOptions.MINISAVE_COUNT);
-			if( t ) alert(name + " is turned ON.\r\r" + callback.help);
+			if( 0 < MX_SAVE ) alert(name + " is turned ON.\r\r" + callback.help);
+
 			evls.add(evType,callback,void 0,{name:name});
 		}
 
