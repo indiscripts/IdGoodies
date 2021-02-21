@@ -1,8 +1,8 @@
 /*******************************************************************************
 
-		Name:           LinkAutoUpdate [4.2]
+		Name:           LinkAutoUpdate [4.3]
 		Desc:           Automatically updates 'out-of-date' links.
-		Path:           /snip/LinkAutoUpdate.jsx
+		Path:           /full/LinkAutoUpdate.jsx
 		Encoding:       ÛȚF8
 		Compatibility:  InDesign CS5/CS6/CC [Mac/Win]
 		L10N:           ---
@@ -11,7 +11,7 @@
 		DOM-access:     YES
 		Todo:           ---
 		Created:        181604 (YYMMDD)
-		Modified:       210215 (YYMMDD)
+		Modified:       210221 (YYMMDD)
 
 *******************************************************************************/
 
@@ -25,7 +25,7 @@
 	listener. You can either run it manually during your session, or load it
 	as a 'startup script'.
 	
-	A alternate code exists based on a script from あるふぁ（仮） :
+	An alternate code exists based on a script from あるふぁ（仮） :
 	twitter.com/peprintenpa/status/1361132929678667787?ref_src=twsrc%5Etfw
 	which listens to the event `afterAttributeChanged` and delegates the task
 	to BridgeTalk.
@@ -108,7 +108,7 @@
 	  ].join('\r\r')
 	);
 
-	(function(/*str*/evType,/*str*/name,/*fct*/callback,  evls,MX_SAVE,doc)
+	(function(/*str*/evType,/*str*/name,/*fct*/callback,  t,evls,MX_SAVE,doc)
 	//----------------------------------------------------------
 	// Install/uninstall the listener.
 	{
