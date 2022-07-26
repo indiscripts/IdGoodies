@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-		Name:           TextSortParagraphs [1.1]
+		Name:           TextSortParagraphs [1.3]
 		Desc:           Fast sort of InDesign paragraphs.
 		Path:           /snip/TextSortParagraphs.jsx
 		Encoding:       ÛȚF8
@@ -11,7 +11,7 @@
 		DOM-access:     YES
 		Todo:           ---
 		Created:        200515 (YYMMDD)
-		Modified:       200619 (YYMMDD)
+		Modified:       220726 (YYMMDD)
 
 *******************************************************************************/
 
@@ -45,10 +45,14 @@
 
 	      // 2. Sort an entire story.
 	      sortParagraphs(myStory);
+	
+	[UPD220726] Version 1.3 introduces a 3rd argument, extraOrderFunc, that
+	allows you to create custom order keys (instead of paragraph contents)
+	based on the plural Paragraph specifier. Cf. https://adobe.ly/3Oz8LNQ
 
 	*/
 
-	;const sortParagraphs = function sortParagraphs(/*Text|TextContainer*/input,/*fct=auto*/sortFunc,  F,T,A,pev,c,host,n,X,Z,order,i,a,k,x,dx,xi,t,j)
+	;const sortParagraphs = function sortParagraphs(/*Text|TextContainer*/input,/*fct=auto*/sortFunc,/*fct=auto*/extraOrderFunc,  F,T,A,pev,c,host,n,X,Z,order,i,a,k,x,dx,xi,t,j)
 	//----------------------------------
 	// `input` :: a Text object -- for example a Paragraphs.itemByRange(...) specifier -- or a text container
 	//            (Story, TextFrame, Cell...) In case a TextFrame is supplied, the whole parent story is
@@ -57,6 +61,10 @@
 	//            If not supplied, strings are sorted based on toLowerCase() and Array.sort().
 	//            WARNING: if you supply a custom sort function, make sure it doesn't alter the strings
 	//            passed through the array (sortParagraphs adds a special suffix for indexing purpose.)
+	// `extraOrderFunc` :: [opt.] Custom function taking a plural Paragraph specifier `pev` and returning
+	//            an array of N sortable string keys (excluding \0.), where N is the paragraph count in pev.
+	//            By default, `extraOrderFunc` is not implemented; `pev.contents` is used instead.
+	//            WARNING: THIS IS AN ADVANCED PARAMETER, USE IT ONLY IF YOU KNOW WHAT YOU'RE DOING!!!
 	// [REM] At most 65,535 paragraphs can be treated by this function.
 	// ---
 	// => undef
@@ -66,6 +74,7 @@
 		if( 'function' != typeof(F=callee.RUN) ) throw "The RUN routine is missing."
 		const CHR = String.fromCharCode;
 		const MTH = 'function' == typeof sortFunc ? 'toString' : (sortFunc=0, 'toLowerCase');
+		const EXT = 'function' == typeof extraOrderFunc;
 		// ---
 		if( (!input) || !input.hasOwnProperty('texts') ) return;
 		input instanceof TextFrame && (input=input.parentStory);
@@ -90,11 +99,12 @@
 			X = pev.index;    // positions
 			Z = pev.length;   // lengths
 			n = X.length;     // count
+
 			if( 0xFFFF < n ){ alert( "Too many paragraphs." ); continue; }
 
 			// Sort the paragraph contents.
 			// ---
-			order = pev.contents;
+			order = EXT ? extraOrderFunc(pev) : pev.contents; // [ADD220726] Supports extraOrderFunc.
 			for( i=n ; i-- ; T[i]=i, order[i]=order[i][MTH]()+'\0'+CHR(i) );
 			sortFunc ? (order=sortFunc(order)) : order.sort();
 			for( i=n ; i-- ; order[i]=order[i].slice(-1).charCodeAt(0) );
