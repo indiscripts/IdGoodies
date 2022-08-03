@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-		Name:           TableCellBox
+		Name:           TableCellBox (v.2)
 		Desc:           Create a box enclosing a cell (or cell range).
 		Path:           /snip/TableCellBox.jsx
 		Encoding:       ÛȚF8
@@ -11,7 +11,7 @@
 		DOM-access:     YES
 		Todo:           ---
 		Created:        220731 (YYMMDD)
-		Modified:       220801 (YYMMDD)
+		Modified:       220803 (YYMMDD)
 
 *******************************************************************************/
 
@@ -30,16 +30,32 @@
 	The code illustrates and extends an idea from Uwe Laubender. Although
 	of no particular interest to the end-user, the method might help scripters
 	to access cell or cell-range coordinates for further processing...
+	
+	Update (220803):
+	- The present implementation deals with various InDesign issues, in particular
+	  the `obj.duplicate()` bug that affects GraphicCell's inner object. The
+	  `duplicate` method is no longer invoked at all and the obj/spread matrix
+	  relationship is now purely computed 'from scratch'.
+	- The code supports the case of MSO or Button in the graphic cell.
+	- It can generate multiple cell boxes if the incoming cell range runs
+	  across different spreads (threaded frames.)
+	  
+	Note. For a good understanding of the transformations, matrices, and coordinate
+	spaces involved here, see https://indiscripts.com/tag/CST
 
 	*/
 
-	;function cellBox(/*Cell*/cell,  K,doc,pp,reGrow,reStro,nonGC,tf,sto,box,ret,tsf,lt,rb,i,t,z)
+	;function cellBox(/*Cell|PageItem*/target,/*?str*/fillColor,/*?Document*/doc,    bkStrokeMu,wrk,K,cell,pp,t,i,q,r)
 	//----------------------------------
-	// Create a rectangle that exactly (?) matches the `cell` object
+	// Create a rectangle that exactly (?) matches the `target` object
 	// (single or plural specifier) w.r.t to transform states and
 	// stroke weight. Return a { box, left, top, right, bottom }
 	// structure, `box` being the created Rectangle. The coordi-
 	// nates (in pt) are all given in the INNER space.
+	// [REM] Master items not supported!
+	// [ADD220803] `target` can be the cell's pageitem as well; the
+	// client code can provide `doc` if the host document is already
+	// known.
 	// [ADD220801] Added `innerWidth`, `innerHeight` props.
 	// ---
 	// Based on:
@@ -48,141 +64,266 @@
 	//    www.hilfdirselbst.ch/gforum/gforum.cgi?post=584008#584008 
 	// 2. Uwe Laubender's code (25. Jul 2022, 17:57)
 	// ---
-	// => { box: new Rectangle, ... }
+	// => { box: new Rectangle, ... }  [OK]  |  false [KO]
 	{
-		if( 'Cell' != (cell||0).constructor.name ) return false;
-		
 		// Boring enums.
 		// ---
-		const GC =  +CellTypeEnum.GRAPHIC_TYPE_CELL;
-		const BEG = +LocationOptions.AT_BEGINNING;
-		const MU_PT = +MeasurementUnits.POINTS;
-		const AP_TL = +AnchorPoint.TOP_LEFT_ANCHOR;
-		const AP_BR = +AnchorPoint.BOTTOM_RIGHT_ANCHOR;
-		const CS_IN = +CoordinateSpaces.INNER_COORDINATES;
-		const CS_PB = +CoordinateSpaces.PASTEBOARD_COORDINATES;
-
-		// Host document required.
-		// ---
-		t = cell.toSpecifier().split('//')[0];
-		'('==t.charAt(0) && (t=t.slice(1));
-		doc = resolve(t);
-		if( !doc.isValid ) return false; // Shouldn't happen.
-
-		// Make sure we'll read stroke weights in PT.
-		// reStro :: backup (if needed.)
-		// ---
-		MU_PT == (reStro=+doc.viewPreferences.strokeMeasurementUnits)
-		? ( reStro = false )
-		: ( doc.viewPreferences.strokeMeasurementUnits=MU_PT );
-
-		// Now supporting multiple cells.
-		// ---
-		for( tsf=ret=false, K=cell.cells, i=K.length ; i-- ; )
+		const MX = callee.MX || (callee.MX=
 		{
-			// Use graphic cell as base rectangle.
+			muPT  : +MeasurementUnits.POINTS,
+			ctGC  : +CellTypeEnum.GRAPHIC_TYPE_CELL,
+			ctTX  : +CellTypeEnum.TEXT_TYPE_CELL,
+			loBEG : +LocationOptions.AT_BEGINNING,
 			// ---
+			apTL  : +AnchorPoint.TOP_LEFT_ANCHOR,
+			apBR  : +AnchorPoint.BOTTOM_RIGHT_ANCHOR,
+			apCC  : +AnchorPoint.CENTER_ANCHOR,
+			// ---
+			bbVIS : +BoundingBoxLimits.OUTER_STROKE_BOUNDS,
+			// ---
+			csPB  : +CoordinateSpaces.PASTEBOARD_COORDINATES,
+			csSP  : +CoordinateSpaces.SPREAD_COORDINATES,
+			csPR  : +CoordinateSpaces.PARENT_COORDINATES,
+			csIN  : +CoordinateSpaces.INNER_COORDINATES,
+			// ---
+			mcSHR : [+(t=MatrixContent).scaleValues, +t.shearValue, +t.rotationValue],
+		});
+
+		// Checkpoint and settings.
+		// ---
+		if( !(target||0).isValid )
+		{
+			return false;
+		}
+		if( 'Document' != (doc||0).constructor.name )
+		{
+			t = 'function' == typeof(target.toSpecifier) && target.toSpecifier();
+			if( 'string' != typeof t ) return false;
+			t = t.split('//')[0];
+			try{ doc = resolve( 0===t.indexOf('(') ? t.slice(1) : t ) }
+			catch(_){ doc=0 }
+			if( !doc.isValid ) return false;
+		}
+		if( 'Cell' != target.constructor.name && 'Cell' != (target=target.parent||0).constructor.name )
+		{
+			return false;
+		}
+		( 'string' == typeof fillColor && (doc.colors.itemByName(fillColor).isValid||doc.swatches.itemByName(fillColor).isValid) )
+		|| (fillColor='Black');
+		callee.BOX_PROPS =
+		{
+			strokeColor: 'None',
+			fillColor:   fillColor,
+			// Add safety attributes: corner options, etc
+		};
+
+		// Temporarily force stroke weights in PT.
+		// ---
+		MX.muPT == (bkStrokeMu=+doc.viewPreferences.strokeMeasurementUnits)
+		? ( bkStrokeMu = false )
+		: ( doc.viewPreferences.strokeMeasurementUnits=MX.muPT );
+
+		// Supports multiple cells.
+		// ---
+		for( wrk={}, K=target.cells, i=K.length ; i-- ; )
+		{
 			pp = (cell=K[i]).properties;
-			(reGrow=pp.autoGrow)&&(cell.autoGrow=false);
-			nonGC = GC != +pp.cellType;
-			if( nonGC )
-			{
-				sto=(tf=doc.textFrames.add()).parentStory;           // Dummy frame/story.
-				cell.texts[0].move(BEG, sto);                        // Cell is now empty. (Sure?)
-				cell.convertCellType(GC);                            // Temp conv to GC.
-			}
-			box = cell.pageItems[0].duplicate();                     // Duplicate GC into rect.
-			if( nonGC )
-			{
-				cell.convertCellType(CellTypeEnum.TEXT_TYPE_CELL);   // Restore cell.
-				sto.move(BEG,cell.texts[0].insertionPoints[0]);      // Restore contents.
-				tf.remove();                                         // Remove dummy fame.
-			}
-			reGrow && (cell.autoGrow=true);                          // Restore autoGrow.
-
-			// [WARNING] Due to an ID bug the `box` polygon doesn't
-			// necessarily match, but its *bounding box* is OK :-)
-			// Convert-to-rectangle forces the poly to fit its b-box.
-			// ---
-			box.convertShape(+ConvertShapeOptions.CONVERT_TO_RECTANGLE);
-
-			// Take cell strokes into account.
-			// ---
-			z = 0;
-			lt = box.resolve(AP_TL,CS_IN)[0];                      // [x,y]
-			(t=pp.leftEdgeStrokeWeight||0)   && (++z, lt[0]-=t/2); // left shift
-			(t=pp.topEdgeStrokeWeight||0)    && (++z, lt[1]-=t/2); // top shift
-			// ---
-			rb = box.resolve(AP_BR,CS_IN)[0];                      // [x,y]
-			(t=pp.rightEdgeStrokeWeight||0)  && (++z, rb[0]+=t/2); // right shift
-			(t=pp.bottomEdgeStrokeWeight||0) && (++z, rb[1]+=t/2); // bottom shift
-			
-			if( !ret )
-			{
-				ret =
-				{
-					box:         box,
-					left:        lt[0],
-					top:         lt[1],
-					right:       rb[0],
-					bottom:      rb[1],
-					wantReframe: 0 < z,
-				};
-			}
-			else
-			{
-				// Convert `box` corners into ret.box inner coordinates.
-				// [REM] This block is entered only in MULTIPLE CELLS case.
-				// ---
-				tsf || (tsf=ret.box.transformValuesOf(CS_PB)[0].invertMatrix()), // PB->ret.box
-
-				t = box.transformValuesOf(CS_PB)[0].catenateMatrix(tsf);         // curBox->ret.box
-				lt = t.changeCoordinates(lt);
-				rb = t.changeCoordinates(rb);
-
-				// Update TLBR.
-				// ---
-				(t=lt[0]) < ret.left   && (ret.left=t);
-				(t=lt[1]) < ret.top    && (ret.top=t);
-				(t=rb[0]) > ret.right  && (ret.right=t);
-				(t=rb[1]) > ret.bottom && (ret.bottom=t);
-				ret.wantReframe = true;
-
-				box.remove();
-			}
+			t = callee[MX.ctGC == +pp.cellType ? 'GRAC' : 'TEXC'];
+			t.call(callee,wrk,doc,cell,pp,MX);
 		}
 		
-		if( ret.wantReframe )
-		{
-			// TLBR shift in the INNER space (of ret.box).
-			// ---
-			ret.box.reframe(CS_IN, [[ret.left,ret.top],[ret.right,ret.bottom]]);
-			delete ret.wantReframe;
-		}
-		
-		// Extra infos...
+		// Apply final reframe and format result.
 		// ---
-		ret.innerWidth  = ret.right-ret.left;
-		ret.innerHeight = ret.bottom-ret.top;
-		// etc
+		r = [];
+		for( t in wrk )
+		{
+			if( !wrk.hasOwnProperty(t) ) continue;
+			q = wrk[t];
+			q.box.reframe(MX.csIN, [ [q.L,q.T] , [q.R,q.B] ]);
+			r[r.length] =
+			{
+				box:    q.box,
+				top:    q.T,
+				left:   q.L,
+				bottom: q.B,
+				right:  q.R,
+				innerWidth:  q.R-q.L,
+				innerHeight: q.B-q.T,
+			}
+		}
 
 		// Restore stroke unit if necessary.
 		// ---
-		reStro && (doc.viewPreferences.strokeMeasurementUnits=reStro);
+		bkStrokeMu && (doc.viewPreferences.strokeMeasurementUnits=bkStrokeMu);
 
-		return ret;
+		return 0 < (t=r.length) && (1 < t ? r : r[0]);
 	};
+
+	cellBox.TEXC = function(/*Work&*/wrk,/*Document*/doc,/*Cell&*/cell,/*CellProp*/pp,/*Enums*/MX,  reGrow,sto,tf,bx)
+	//----------------------------------
+	// (Process-Text-Cell.) `cell` is a regular Cell.
+	// this :: cellBox (fct)
+	// => {} [OK]  |  false [KO]
+	{
+		(reGrow=pp.autoGrow)&&(cell.autoGrow=false);
+
+		sto=(tf=doc.textFrames.add()).parentStory;               // Dummy frame/story.
+		cell.texts[0].move(MX.loBEG, sto);                       // Assert: Cell is now empty.
+		cell.convertCellType(MX.ctGC);                           // Assert: Cell.pageItems[0] is a Rectangle.
+
+		bx = this.GRAC(wrk,doc,cell,pp,MX);
+
+		cell.convertCellType(MX.ctTX);                           // Restore Text cell.
+		sto.move(MX.loBEG,cell.texts[0].insertionPoints[0]);     // Restore contents.
+		tf.remove();                                             // Remove dummy fame.
+		
+		reGrow && (cell.autoGrow=true);                          // Restore autoGrow if necessary.
+		return bx;
+	};
+
+	cellBox.GRAC = function(/*Work&*/wrk,/*Document*/doc,/*Cell*/cell,/*CellProp*/pp,/*Enums*/MX,  gco,spd,bx,q,k,t,m,lt,rb)
+	//----------------------------------
+	// (Process-Graphic-Cell.) `cell` is a GC.
+	// this :: cellBox (fct)
+	// => {} [OK]  |  false [KO]
+	{
+		const myTL = callee.LOC_TL||(callee.LOC_TL=[MX.apTL,MX.bbVIS,MX.csPR]);
+		const myBR = callee.LOC_BR||(callee.LOC_BR=[MX.apBR,MX.bbVIS,MX.csPR]);
+
+		// 1. Determine the destination SPREAD.
+		// ---
+		gco = cell.pageItems[0];                                      // Could be any kind of PageItem (incl. Button, MSO etc.)
+		if( !gco.properties.visibleBounds ) return false;             // Make sure `gco` is not a 'ghost'.
+		t = gco.resolve(MX.apCC,MX.csPB)[0][1];                       // Y-coord of the center point *in PASTEBOARD space*.
+		spd = this.Y2SP(t,doc,MX);                                    // Host spread.
+
+		// 2. Get/create the box (SPREAD item).
+		// ---
+		if( wrk.hasOwnProperty(k='_'+spd.id) )
+		{
+			q = wrk[k];
+			bx = q.box;                                               // Recover existing box.
+			m = q.tsf;                                                // Recover PB->boxInner matrix.
+		}
+		else
+		{
+			bx = this.IBOX(spd,gco,MX);                               // New box.
+			m = bx.transformValuesOf(MX.csPB)[0].invertMatrix();      // PB->boxInner
+			q = wrk[k]={ box:bx, tsf:m, L:1/0, T:1/0, R:-1/0, B:-1/0 }; // Save.
+		}
+		
+		// 3. The whole cellBox trick is here: get the opposite
+		// corners of the *VISIBLE IN-PARENT* box of `gco`.
+		// ---
+		lt = m.changeCoordinates(gco.resolve(myTL,MX.csPB)[0]);       // Translate the resolved (L,T) from PB to boxInner.
+		(t=pp.leftEdgeStrokeWeight||0)   && (lt[0]-=t/2);             // Left edge shift.
+		(t=pp.topEdgeStrokeWeight||0)    && (lt[1]-=t/2);             // Top edge shift.
+		// ---
+		rb = m.changeCoordinates(gco.resolve(myBR,MX.csPB)[0]);       // Translate the resolved (R,B) from PB to boxInner
+		(t=pp.rightEdgeStrokeWeight||0)  && (rb[0]+=t/2);             // Right edge shift.
+		(t=pp.bottomEdgeStrokeWeight||0) && (rb[1]+=t/2);             // Rottom edge shift.
+
+		// 4. Basically, all we have to do is reframing the box
+		// in its inner space along [lt,rb]. But since we may
+		// address multiple cells, just update the metrics.
+		// ---
+		(t=lt[0]) < q.L && (q.L=t);
+		(t=lt[1]) < q.T && (q.T=t);
+		(t=rb[0]) > q.R && (q.R=t);
+		(t=rb[1]) > q.B && (q.B=t);
+
+		return bx;
+	};
+
+	cellBox.IBOX = function(/*Spread*/spd,/*PageItem*/gco,/*Enums*/MX,  r,t)
+	//----------------------------------
+	// (Initialize-Box.) Create a new box in appropriate transform state.
+	// this :: cellBox (fct)
+	// => Rectangle.
+	{
+		const TVO = 'transformValuesOf';
+		const INV = 'invertMatrix';
+
+		// 1. Create a fresh rectangle in `spd`.
+		// ---
+		r = spd.rectangles.add(gco.itemLayer);
+		r.properties = this.BOX_PROPS;
+
+		// 2. Adjust the transform state (diregarding translation)
+		// so that: recInner->Spread  fits  gcoParent->Spread.
+		// [REM] Since gco.transformValuesOf(<Spread>) is unsafe,
+		// rely on spd->PB matrix:
+		// Parent->Spread = Parent->Inner × Inner->PB × PB->Spread
+		// ---
+		t = gco[TVO](MX.csPR)[0][INV]()                               //   Parent->Inner
+			.catenateMatrix( gco[TVO](MX.csPB)[0] )                   // × Inner->PB
+			.catenateMatrix( spd[TVO](MX.csPB)[0][INV]() );           // × PB->Spread
+		r.transform(MX.csSP, MX.apCC, t, MX.mcSHR);                   // Replace the existing S•H•R components.
+
+		return r;
+	};
+
+	cellBox.Y2SP = function(/*num*/Y,/*Document*/doc,/*Enums*/MX,  K,a,t,k,i,z,b)
+	//----------------------------------
+	// Get the Spread that contains the absolute Y coordinate (in Pasteboard space.)
+	// [REM] Master spreads not supported!!
+	// => Spread.
+	{
+		// Spread y-positions. (Cached.)
+		// ---
+		K = doc.spreads;
+		a = (t=callee.Q||(callee.Q={})).hasOwnProperty(k=doc.toSpecifier()) && t[k];
+		if( !a )
+		{
+			a = K.everyItem().resolve([MX.apTL,MX.bbVIS,MX.csPB],MX.csPB)[0];
+			for( i=z=a.length ; i-- ; a[i]=i?a[i][1]:-1/0 );
+			a[z] = 1/0;
+			t[k] = a;
+		}
+		else
+		{
+			z = -1 + a.length;
+		}
+
+		// Binary search. Looks for the unique `i` s.t.
+		// `a[i] <= Y < a[i+1]` (i is then the spread index.)
+		// ---
+		for
+		(
+			t=[0,z] ;
+			Y < a[i=(t[b=0]+t[1])>>1] || Y >= a[(b=1)+i] ;
+			t[1-b]=b+i
+		);
+
+		return K[i];
+	};
+
 
 
 // Test Me.
 // ---
 /*
 	var cell = app.selection[0];
-	var ret = cellBox(cell);
+	var ret = cellBox(cell, 'Yellow');
 	if( ret )
 	{
-		ret.box.properties = { fillColor:'Yellow' };
-		alert( "Intrinsic dimensions: " + [ret.innerWidth,ret.innerHeight].join(' \xD7 ') + " pt." );
+		var i, msg;
+		if( ret instanceof Array )
+		{
+			for
+			(
+				msg=["Intrinsic dimensions (multiple spreads):"], i=-1 ;
+				++i < ret.length ;
+				msg[msg.length] = ret[i].innerWidth + ' \xD7 ' + ret[i].innerHeight + ' pt'
+			);
+			msg = msg.join('\r');
+		}
+		else
+		{
+			msg = "Intrinsic dimensions: " + ret.innerWidth + ' \xD7 ' + ret.innerHeight + ' pt';
+		}
+
+		alert( msg );
 	}
 	else
 	{
