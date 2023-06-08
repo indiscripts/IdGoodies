@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-		Name:           TableCellBox (v.2)
+		Name:           TableCellBox (v.3)
 		Desc:           Create a box enclosing a cell (or cell range).
 		Path:           /snip/TableCellBox.jsx
 		Encoding:       ÛȚF8
@@ -11,7 +11,7 @@
 		DOM-access:     YES
 		Todo:           ---
 		Created:        220731 (YYMMDD)
-		Modified:       220803 (YYMMDD)
+		Modified:       230608 (YYMMDD)
 
 *******************************************************************************/
 
@@ -31,7 +31,12 @@
 	of no particular interest to the end-user, the method might help scripters
 	to access cell or cell-range coordinates for further processing...
 	
-	Update (220803):
+	Update (230608):
+	- v3 circumvents the bug reported in https://t.co/qhHLtR7w5F (& https://t.co/9mgv6wh4L6)
+	  related to anchored objects. This is an InDesign bug and we only have a half-hearted
+	  solution so far: when the target cell contains an anchored objet, the inner contents
+	  is restored thru `duplicate()`, not `move()`, to prevent ID crash. Consequence:
+	  internal IDs of the underlying objects are then modified.
 	- The present implementation deals with various InDesign issues, in particular
 	  the `obj.duplicate()` bug that affects GraphicCell's inner object. The
 	  `duplicate` method is no longer invoked at all and the obj/spread matrix
@@ -131,7 +136,7 @@
 			t = callee[MX.ctGC == +pp.cellType ? 'GRAC' : 'TEXC'];
 			t.call(callee,wrk,doc,cell,pp,MX);
 		}
-		
+
 		// Apply final reframe and format result.
 		// ---
 		r = [];
@@ -159,7 +164,7 @@
 		return 0 < (t=r.length) && (1 < t ? r : r[0]);
 	};
 
-	cellBox.TEXC = function(/*Work&*/wrk,/*Document*/doc,/*Cell&*/cell,/*CellProp*/pp,/*Enums*/MX,  reGrow,sto,tf,bx)
+	cellBox.TEXC = function(/*Work&*/wrk,/*Document*/doc,/*Cell&*/cell,/*CellProp*/pp,/*Enums*/MX,  reGrow,sto,tf,bx,k)
 	//----------------------------------
 	// (Process-Text-Cell.) `cell` is a regular Cell.
 	// this :: cellBox (fct)
@@ -170,12 +175,14 @@
 		sto=(tf=doc.textFrames.add()).parentStory;               // Dummy frame/story.
 		cell.texts[0].move(MX.loBEG, sto);                       // Assert: Cell is now empty.
 		cell.convertCellType(MX.ctGC);                           // Assert: Cell.pageItems[0] is a Rectangle.
-
 		bx = this.GRAC(wrk,doc,cell,pp,MX);
 
 		cell.convertCellType(MX.ctTX);                           // Restore Text cell.
-		sto.move(MX.loBEG,cell.texts[0].insertionPoints[0]);     // Restore contents.
-		tf.remove();                                             // Remove dummy fame.
+		k = -1 == sto.texts[0].contents.indexOf('\uFFFC')        // [FIX230608] Prevents InDesign Bug:
+		? 'move'                                                 // `move` is allowed if `sto` has no anchor
+		: 'duplicate';                                           // otherwise, use `duplicate` (fallback)
+		sto[k](MX.loBEG,cell.texts[0].insertionPoints[0]);       // Restore contents.
+		tf.remove();                                             // Remove dummy frame.
 		
 		reGrow && (cell.autoGrow=true);                          // Restore autoGrow if necessary.
 		return bx;
@@ -211,7 +218,7 @@
 			m = bx.transformValuesOf(MX.csPB)[0].invertMatrix();      // PB->boxInner
 			q = wrk[k]={ box:bx, tsf:m, L:1/0, T:1/0, R:-1/0, B:-1/0 }; // Save.
 		}
-		
+
 		// 3. The whole cellBox trick is here: get the opposite
 		// corners of the *VISIBLE IN-PARENT* box of `gco`.
 		// ---
@@ -302,9 +309,9 @@
 
 // Test Me.
 // ---
-/*
 	var cell = app.selection[0];
 	var ret = cellBox(cell, 'Yellow');
+	/*
 	if( ret )
 	{
 		var i, msg;
@@ -329,4 +336,4 @@
 	{
 		alert("Select a Table cell or cell range.");
 	}
-*/
+	*/
