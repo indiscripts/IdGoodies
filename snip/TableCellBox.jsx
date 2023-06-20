@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-		Name:           TableCellBox (v.3)
+		Name:           TableCellBox (v.4)
 		Desc:           Create a box enclosing a cell (or cell range).
 		Path:           /snip/TableCellBox.jsx
 		Encoding:       ÛȚF8
@@ -11,7 +11,7 @@
 		DOM-access:     YES
 		Todo:           ---
 		Created:        220731 (YYMMDD)
-		Modified:       230608 (YYMMDD)
+		Modified:       230620 (YYMMDD)
 
 *******************************************************************************/
 
@@ -31,7 +31,10 @@
 	of no particular interest to the end-user, the method might help scripters
 	to access cell or cell-range coordinates for further processing...
 	
-	Update (230608):
+	Update (230620):
+	- v4: ability to skip box creation: pass in `false` as 2nd argument. The function
+	  now returns `topLeft`, `topRight`, `bottomLeft`, `bottomRight` properties in
+	  *spread* coordinate space (instead of inner space anchors).
 	- v3 circumvents the bug reported in https://t.co/qhHLtR7w5F (& https://t.co/9mgv6wh4L6)
 	  related to anchored objects. This is an InDesign bug and we only have a half-hearted
 	  solution so far: when the target cell contains an anchored objet, the inner contents
@@ -50,18 +53,25 @@
 
 	*/
 
-	;function cellBox(/*Cell|PageItem*/target,/*?str*/fillColor,/*?Document*/doc,    bkStrokeMu,wrk,K,cell,pp,t,i,q,r)
+	;function cellBox(/*Cell|PageItem*/target,/*?str|false*/fillColor,/*?Document*/doc,    bkStrokeMu,wrk,K,cell,pp,t,i,q,m,r)
 	//----------------------------------
-	// Create a rectangle that exactly (?) matches the `target` object
-	// (single or plural specifier) w.r.t to transform states and
-	// stroke weight. Return a { box, left, top, right, bottom }
-	// structure, `box` being the created Rectangle. The coordi-
-	// nates (in pt) are all given in the INNER space.
-	// [REM] Master items not supported!
-	// [ADD220803] `target` can be the cell's pageitem as well; the
-	// client code can provide `doc` if the host document is already
-	// known.
+	// By default, create a rectangle that exactly (?) matches the `target`
+	// (single or plural specifier) w.r.t to transform states and stroke
+	// weight. The function then returns a { box, topLeft, topRight, bottomLeft,
+	// bottomRight, innerWidth, innerHeight } structure, `box` being the new Rectangle.
+	// [CHG230620] If fillColor is explicitly set to `false`, no actual Rectangle is
+	// created and the returned structure only contains coordinates (the `box` property
+	// being set to false).
+	// [CHG230620] While `innerWidth`, `innerHeight` are the intrinsic dimensions of the
+	// box in points and relative to the inner space, the properties `topLeft`, `topRight`,
+	// `bottomLeft`, and `bottomRight` give the [x,y] coordinates of the corresponding
+	// anchors in SPREAD coordinate space. (Those anchors describe a parallelogram.)
 	// [ADD220801] Added `innerWidth`, `innerHeight` props.
+	// [ADD220803] `target` can be the cell's pageitem as well; the client
+	// code can provide `doc` if the host document is already known.
+	// [REM230620] If target is a plural cell that involves multiple pages,
+	// the function returns an array of objects.
+	// Note: Master items are not supported!
 	// ---
 	// Based on:
 	// 1. Discussed suggestion at HDS: 
@@ -69,7 +79,9 @@
 	//    www.hilfdirselbst.ch/gforum/gforum.cgi?post=584008#584008 
 	// 2. Uwe Laubender's code (25. Jul 2022, 17:57)
 	// ---
-	// => { box: new Rectangle, ... }  [OK]  |  false [KO]
+	// => <BOX_DATA> | <BOX_DATA>[]  [OK]  |  false [KO]
+	// where <BOX_DATA> :: { box:new Rectangle|false, innerWidth:num, innerHeight:num,
+	//       topLeft:num[2], topRight:num[2], bottomLeft:num[2], bottomRight:num[2] }
 	{
 		// Boring enums.
 		// ---
@@ -113,14 +125,24 @@
 		{
 			return false;
 		}
-		( 'string' == typeof fillColor && (doc.colors.itemByName(fillColor).isValid||doc.swatches.itemByName(fillColor).isValid) )
-		|| (fillColor='Black');
-		callee.BOX_PROPS =
+
+		if( false !== fillColor )
 		{
-			strokeColor: 'None',
-			fillColor:   fillColor,
-			// Add safety attributes: corner options, etc
-		};
+			( 'string' == typeof fillColor && (doc.colors.itemByName(fillColor).isValid||doc.swatches.itemByName(fillColor).isValid) )
+			|| (fillColor='Black');
+			callee.BOX_PROPS =
+			{
+				strokeColor: 'None',
+				fillColor:   fillColor,
+				// You may add safety attributes:
+				// corner options, etc
+			};
+		}
+		else
+		{
+			// [ADD230620] 'No box' option.
+			callee.BOX_PROPS = false;
+		}
 
 		// Temporarily force stroke weights in PT.
 		// ---
@@ -143,18 +165,28 @@
 		for( t in wrk )
 		{
 			if( !wrk.hasOwnProperty(t) ) continue;
-			q = wrk[t];
-			q.box.reframe(MX.csIN, [ [q.L,q.T] , [q.R,q.B] ]);
+			q = wrk[t]; // { box, tsf, insp, T, L, B, R }
+
+			// [CHG230619] Q.box remains FALSE if 'No box'
+			q.box && q.box.reframe(MX.csIN, [ [q.L,q.T] , [q.R,q.B] ]);
+
+			m = q.insp;
 			r[r.length] =
 			{
-				box:    q.box,
-				top:    q.T,
-				left:   q.L,
-				bottom: q.B,
-				right:  q.R,
-				innerWidth:  q.R-q.L,
-				innerHeight: q.B-q.T,
-			}
+				box:         q.box,          // Rectangle|false
+				// --- [DEL230620]
+				// top:      q.T,            // Top coordinate (pt) in inner space
+				// left:     q.L,            // Left coordinate (pt) in inner space
+				// bottom:   q.B,            // Bottom coordinate (pt) in inner space
+				// right:    q.R,            // Right coordinate (pt) in inner space
+				innerWidth:  q.R-q.L,        // Inner width (pt)
+				innerHeight: q.B-q.T,        // Inner height (pt)
+				// --- [ADD230620]
+				topLeft:     m.changeCoordinates([q.L,q.T]), // Translate the topLeft anchor in SPREAD coords.
+				topRight:    m.changeCoordinates([q.R,q.T]), // Translate the topRight anchor in SPREAD coords.
+				bottomLeft:  m.changeCoordinates([q.L,q.B]), // Translate the bottomLeft anchor in SPREAD coords.
+				bottomRight: m.changeCoordinates([q.R,q.B]), // Translate the bottomRight anchor in SPREAD coords.
+			};
 		}
 
 		// Restore stroke unit if necessary.
@@ -214,15 +246,32 @@
 		}
 		else
 		{
-			bx = this.IBOX(spd,gco,MX);                               // New box.
-			m = bx.transformValuesOf(MX.csPB)[0].invertMatrix();      // PB->boxInner
-			q = wrk[k]={ box:bx, tsf:m, L:1/0, T:1/0, R:-1/0, B:-1/0 }; // Save.
+			if( this.BOX_PROPS )
+			{
+				bx = this.IBOX(spd,gco,MX);                           // New box.
+				m = bx.transformValuesOf(MX.csPB)[0].invertMatrix();  // PB->boxInner
+			}
+			else
+			{
+				// [ADD230619] No box: use gcoParent as virtual dest space;
+				// boxInner is not available so inner->parent is [1,0,0,1,0,0].
+				bx = false;                                           // No box.
+				m = this.PBPR(gco,MX);                                // PB->boxInner(=gcoParent)
+			}
+			
+			// Save.
+			q = wrk[k] =
+			{
+				box:bx, tsf:m,
+				insp: this.INSP(spd, bx||gco, MX),                    // [ADD230620] Inner->Spread matrix
+				L:1/0, T:1/0, R:-1/0, B:-1/0
+			};
 		}
 
 		// 3. The whole cellBox trick is here: get the opposite
 		// corners of the *VISIBLE IN-PARENT* box of `gco`.
 		// ---
-		lt = m.changeCoordinates(gco.resolve(myTL,MX.csPB)[0]);       // Translate the resolved (L,T) from PB to boxInner.
+		lt = m.changeCoordinates(gco.resolve(myTL,MX.csPB)[0]);       // Translate the resolved (L,T) from PB to boxInner
 		(t=pp.leftEdgeStrokeWeight||0)   && (lt[0]-=t/2);             // Left edge shift.
 		(t=pp.topEdgeStrokeWeight||0)    && (lt[1]-=t/2);             // Top edge shift.
 		// ---
@@ -248,9 +297,6 @@
 	// this :: cellBox (fct)
 	// => Rectangle.
 	{
-		const TVO = 'transformValuesOf';
-		const INV = 'invertMatrix';
-
 		// 1. Create a fresh rectangle in `spd`.
 		// ---
 		r = spd.rectangles.add(gco.itemLayer);
@@ -258,17 +304,45 @@
 
 		// 2. Adjust the transform state (diregarding translation)
 		// so that: recInner->Spread  fits  gcoParent->Spread.
-		// [REM] Since gco.transformValuesOf(<Spread>) is unsafe,
-		// rely on spd->PB matrix:
-		// Parent->Spread = Parent->Inner × Inner->PB × PB->Spread
-		// ---
-		t = gco[TVO](MX.csPR)[0][INV]()                               //   Parent->Inner
-			.catenateMatrix( gco[TVO](MX.csPB)[0] )                   // × Inner->PB
-			.catenateMatrix( spd[TVO](MX.csPB)[0][INV]() );           // × PB->Spread
+		t = gco.transformValuesOf(MX.csPR)[0].invertMatrix().         //   Parent->Inner
+			catenateMatrix( this.INSP(spd,gco,MX) );                  // x Inner->Spread
 		r.transform(MX.csSP, MX.apCC, t, MX.mcSHR);                   // Replace the existing S•H•R components.
 
 		return r;
 	};
+	
+	cellBox.INSP = function(/*Spread*/spd,/*PageItem*/item,/*Enums*/MX)
+	//----------------------------------
+	// (Inner-to-Spread-Matrix) [ADD230619] Get the *safe* inner-to-spread
+	// matrix of the object `item`.
+	// this :: cellBox (fct)
+	// => TranformationMatrix
+	{
+		const TVO = 'transformValuesOf';
+		const INV = 'invertMatrix';
+
+		// [REM] Since item.transformValuesOf(<Spread>) may be unsafe, rely
+		// on Spread->PB matrix and use Inner->Spread = Inner->PB × PB->Spread
+		// ---
+		return item[TVO](MX.csPB)[0].                                 //   Inner->PB
+			   catenateMatrix( spd[TVO](MX.csPB)[0][INV]() );         // × PB->Spread
+	},
+
+	cellBox.PBPR = function(/*PageItem*/item,/*Enums*/MX)
+	//----------------------------------
+	// (Pasteboard-to-Parent-Matrix) [ADD230619] Get the PB-to-parent
+	// matrix of the object `item`.
+	// this :: cellBox (fct)
+	// => TranformationMatrix
+	{
+		const TVO = 'transformValuesOf';
+		const INV = 'invertMatrix';
+
+		// PB->Parent = (Parent->Inner x Inner->PB).inv()
+		// ---
+		return item[TVO](MX.csPR)[0][INV]().                          // ( Parent->Inner
+			   catenateMatrix( item[TVO](MX.csPB)[0] )[INV]();        // × Inner->PB     ).invert()
+	},
 
 	cellBox.Y2SP = function(/*num*/Y,/*Document*/doc,/*Enums*/MX,  K,a,t,k,i,z,b)
 	//----------------------------------
@@ -310,7 +384,7 @@
 // Test Me.
 // ---
 	var cell = app.selection[0];
-	var ret = cellBox(cell, 'Yellow');
+	var ret = cellBox(cell, 'Yellow'); // Use `false` rather than 'Yellow' to only get coordinates.
 	/*
 	if( ret )
 	{
@@ -337,3 +411,5 @@
 		alert("Select a Table cell or cell range.");
 	}
 	*/
+
+
