@@ -11,7 +11,7 @@
 		DOM-access:     YES
 		Todo:           ---
 		Created:        250213 (YYMMDD)
-		Modified:       250213 (YYMMDD)
+		Modified:       250214 (YYMMDD)
 
 *******************************************************************************/
 
@@ -35,6 +35,9 @@
 	
 	- To uninstall the listener, remove it (or its alias) from the
 	  Scripts/[startup scripts] folder.
+	
+	More Info:
+	→ indiscripts.com/post/2025/02/finally-fixing-show-hidden-characters-menu-action
 
 	*/
 
