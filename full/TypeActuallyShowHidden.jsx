@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-		Name:           TypeActuallyShowHidden [1.0]
+		Name:           TypeActuallyShowHidden [1.1]
 		Desc:           Make sure that the Show Hidden Characters action works!
 		Path:           /full/TypeActuallyShowHidden.jsx
 		Encoding:       ÛȚF8
@@ -36,6 +36,8 @@
 	- To uninstall the listener, remove it (or its alias) from the
 	  Scripts/[startup scripts] folder.
 	
+	[FIX250214] Also deactivate overprint preview [thx Branislav].
+
 	More Info:
 	→ indiscripts.com/post/2025/02/finally-fixing-show-hidden-characters-menu-action
 
@@ -54,8 +56,13 @@
 			&& (t=app.properties.activeWindow)         // Make sure we have an active Window which:
 			&& 'LayoutWindow'==t.constructor.name                               // (1) is a LayoutWindow
 			&& doc===t.parent                                                   // (2) is a child of `doc`
-			&& +t.properties.screenMode != (off=+ScreenModeOptions.PREVIEW_OFF) // (3) has a 'preview' screen mode
-			&& t.properties = {screenMode:off};        // Then turn off the PREVIEW mode.
+			&&
+			(
+			+t.properties.screenMode != (off=+ScreenModeOptions.PREVIEW_OFF)    // (3a) has a 'preview' screen mode
+			||                                                                  // OR
+			t.properties.overprintPreview                                       // (3b) has overprint preview active
+			)
+			&& t.properties = { screenMode:off, overprintPreview:false };       // Then turn off any PREVIEW mode.
 		}
 		else
 		{
